@@ -1,0 +1,121 @@
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace CarRacingGame
+{
+    public class Form1 : Form
+    {
+        System.Windows.Forms.Timer gameTimer = new System.Windows.Forms.Timer();
+        PictureBox player = new PictureBox();
+        PictureBox enemy1 = new PictureBox();
+        PictureBox enemy2 = new PictureBox();
+        PictureBox road1 = new PictureBox();
+        PictureBox road2 = new PictureBox();
+        Label scoreLabel = new Label();
+
+        int speed = 8;
+        int score = 0;
+        Random rand = new Random();
+
+        public Form1()
+        {
+            this.Width = 400;
+            this.Height = 600;
+            this.Text = "2D Car Racing Game";
+            this.BackColor = Color.Gray;
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.KeyPreview = true;
+
+            SetupGame();
+        }
+
+        void SetupGame()
+        {
+            player.BackColor = Color.Blue;
+            player.Size = new Size(50, 100);
+            player.Location = new Point(170, 450);
+            this.Controls.Add(player);
+
+            enemy1.BackColor = Color.Red;
+            enemy1.Size = new Size(50, 100);
+            enemy1.Location = new Point(50, -150);
+            this.Controls.Add(enemy1);
+
+            enemy2.BackColor = Color.Yellow;
+            enemy2.Size = new Size(50, 100);
+            enemy2.Location = new Point(250, -300);
+            this.Controls.Add(enemy2);
+
+            road1.BackColor = Color.White;
+            road1.Size = new Size(10, 100);
+            road1.Location = new Point(190, 0);
+            this.Controls.Add(road1);
+
+            road2.BackColor = Color.White;
+            road2.Size = new Size(10, 100);
+            road2.Location = new Point(190, 300);
+            this.Controls.Add(road2);
+
+            scoreLabel.Text = "Score: 0";
+            scoreLabel.ForeColor = Color.White;
+            scoreLabel.Font = new Font("Arial", 14, FontStyle.Bold);
+            scoreLabel.Location = new Point(10, 10);
+            scoreLabel.AutoSize = true;
+            this.Controls.Add(scoreLabel);
+
+            gameTimer.Interval = 20;
+            gameTimer.Tick += GameLoop;
+            gameTimer.Start();
+
+            this.KeyDown += MovePlayer;
+        }
+
+        void GameLoop(object? sender, EventArgs e)
+        {
+            score++;
+            scoreLabel.Text = "Score: " + score;
+
+            road1.Top += speed;
+            road2.Top += speed;
+
+            if (road1.Top > this.Height)
+                road1.Top = -100;
+
+            if (road2.Top > this.Height)
+                road2.Top = -100;
+
+            enemy1.Top += speed;
+            enemy2.Top += speed;
+
+            if (enemy1.Top > this.Height)
+            {
+                enemy1.Top = -150;
+                enemy1.Left = rand.Next(20, 320);
+            }
+
+            if (enemy2.Top > this.Height)
+            {
+                enemy2.Top = -300;
+                enemy2.Left = rand.Next(20, 320);
+            }
+
+            if (player.Bounds.IntersectsWith(enemy1.Bounds) ||
+                player.Bounds.IntersectsWith(enemy2.Bounds))
+            {
+                gameTimer.Stop();
+                MessageBox.Show("Game Over!\nYour Score: " + score);
+                Application.Exit();
+            }
+        }
+
+        void MovePlayer(object? sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Left && player.Left > 10)
+                player.Left -= 20;
+
+            if (e.KeyCode == Keys.Right && player.Right < 380)
+                player.Left += 20;
+        }
+    }
+}
