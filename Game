@@ -109,6 +109,13 @@ namespace CarRacingGame
             }
         }
 
-        
+        void MovePlayer(object? sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Left && player.Left > 10)
+                player.Left -= 20;
+
+            if (e.KeyCode == Keys.Right && player.Right < 380)
+                player.Left += 20;
+        }
     }
 }
