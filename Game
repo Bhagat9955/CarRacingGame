@@ -62,7 +62,7 @@ namespace CarRacingGame
             scoreLabel.Font = new Font("Arial", 14, FontStyle.Bold);
             scoreLabel.Location = new Point(10, 10);
             scoreLabel.AutoSize = true;
-            this.Controls.Add(scoreLabel);
+            
 
             gameTimer.Interval = 20;
             gameTimer.Tick += GameLoop;
