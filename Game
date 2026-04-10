@@ -1,121 +1,694 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Windows.Forms;
+using MySql.Data.MySqlClient;
+using System.Collections.Generic;
 
 namespace CarRacingGame
 {
     public class Form1 : Form
     {
-        System.Windows.Forms.Timer gameTimer = new System.Windows.Forms.Timer();
+        Timer gameTimer = new Timer();
+
         PictureBox player = new PictureBox();
-        PictureBox enemy1 = new PictureBox();
-        PictureBox enemy2 = new PictureBox();
-        PictureBox road1 = new PictureBox();
-        PictureBox road2 = new PictureBox();
+        List<PictureBox> enemies = new List<PictureBox>(); // Dynamic enemy list
+
         Label scoreLabel = new Label();
+
+        Button startButton = new Button();
+        Label titleLabel = new Label();
 
         int speed = 8;
         int score = 0;
+        int baseSpeed = 8;
         Random rand = new Random();
+        string currentMode = "";
+
+        // Collision prediction variables
+        int collisionCooldown = 0;
+        const int COLLISION_COOLDOWN_MAX = 30;
+        const int PREDICTION_FRAMES = 3;
+
+        // Spacing control
+        int minDistanceBetweenEnemies = 250; // Minimum pixels between enemy cars
+        List<int> usedLanes = new List<int>();
+        int lastEnemySpawnY = -300;
+
+        string connStr = "server=localhost;user=root;password=YOUR_PASSWORD;database=car_racing_game;";
 
         public Form1()
         {
             this.Width = 400;
             this.Height = 600;
-            this.Text = "2D Car Racing Game";
-            this.BackColor = Color.Gray;
+            this.Text = "Car Racing Game";
             this.StartPosition = FormStartPosition.CenterScreen;
             this.KeyPreview = true;
 
+            ShowWelcome();
+        }
+
+        // 🏁 WELCOME SCREEN
+        void ShowWelcome()
+        {
+            this.BackColor = Color.Black;
+            this.Controls.Clear();
+
+            titleLabel.Text = "🏁 CAR RACING GAME 🏁";
+            titleLabel.ForeColor = Color.Gold;
+            titleLabel.Font = new Font("Arial", 18, FontStyle.Bold);
+            titleLabel.AutoSize = true;
+            titleLabel.Location = new Point(50, 100);
+
+            Label subtitleLabel = new Label();
+            subtitleLabel.Text = "Press Start to Begin";
+            subtitleLabel.ForeColor = Color.White;
+            subtitleLabel.Font = new Font("Arial", 10, FontStyle.Italic);
+            subtitleLabel.AutoSize = true;
+            subtitleLabel.Location = new Point(130, 140);
+
+            startButton.Text = "START GAME";
+            startButton.Size = new Size(180, 50);
+            startButton.Location = new Point(100, 220);
+            startButton.BackColor = Color.Gold;
+            startButton.ForeColor = Color.Black;
+            startButton.Font = new Font("Arial", 14, FontStyle.Bold);
+            startButton.FlatStyle = FlatStyle.Flat;
+            startButton.Click += (s, e) => ShowModeSelection();
+
+            Label instructions = new Label();
+            instructions.Text = "Instructions:\n• Use LEFT/RIGHT arrows to move\n• Avoid enemy cars\n• Score as high as possible!\n• Improved spacing system for fair gameplay!";
+            instructions.ForeColor = Color.LightGray;
+            instructions.Font = new Font("Arial", 9, FontStyle.Regular);
+            instructions.AutoSize = true;
+            instructions.Location = new Point(70, 320);
+            instructions.TextAlign = ContentAlignment.MiddleCenter;
+
+            this.Controls.Add(titleLabel);
+            this.Controls.Add(subtitleLabel);
+            this.Controls.Add(startButton);
+            this.Controls.Add(instructions);
+        }
+
+        // 🎮 MODE SELECTION SCREEN
+        void ShowModeSelection()
+        {
+            this.Controls.Clear();
+            this.BackColor = Color.FromArgb(30, 30, 50);
+
+            Label modeTitle = new Label();
+            modeTitle.Text = "SELECT DIFFICULTY";
+            modeTitle.ForeColor = Color.Gold;
+            modeTitle.Font = new Font("Arial", 20, FontStyle.Bold);
+            modeTitle.AutoSize = true;
+            modeTitle.Location = new Point(70, 80);
+
+            Button easyButton = CreateModeButton("EASY", 5, Color.Green, 130);
+            easyButton.Click += (s, e) => StartGameWithMode("EASY", 5);
+
+            Button mediumButton = CreateModeButton("MEDIUM", 7, Color.Orange, 210);
+            mediumButton.Click += (s, e) => StartGameWithMode("MEDIUM", 7);
+
+            Button hardButton = CreateModeButton("HARD", 9, Color.Red, 290);
+            hardButton.Click += (s, e) => StartGameWithMode("HARD", 9);
+
+            Button backButton = new Button();
+            backButton.Text = "← BACK";
+            backButton.Size = new Size(100, 35);
+            backButton.Location = new Point(140, 480);
+            backButton.BackColor = Color.Gray;
+            backButton.ForeColor = Color.White;
+            backButton.Font = new Font("Arial", 10, FontStyle.Bold);
+            backButton.FlatStyle = FlatStyle.Flat;
+            backButton.Click += (s, e) => ShowWelcome();
+
+            Label easyDesc = new Label();
+            easyDesc.Text = "🐢 Slow speed - More space between cars";
+            easyDesc.ForeColor = Color.LightGreen;
+            easyDesc.Font = new Font("Arial", 8, FontStyle.Italic);
+            easyDesc.AutoSize = true;
+            easyDesc.Location = new Point(100, 175);
+
+            Label mediumDesc = new Label();
+            mediumDesc.Text = "⚡ Medium speed - Balanced spacing";
+            mediumDesc.ForeColor = Color.Yellow;
+            mediumDesc.Font = new Font("Arial", 8, FontStyle.Italic);
+            mediumDesc.AutoSize = true;
+            mediumDesc.Location = new Point(100, 255);
+
+            Label hardDesc = new Label();
+            hardDesc.Text = "🔥 Fast speed - Less space, more challenge";
+            hardDesc.ForeColor = Color.LightCoral;
+            hardDesc.Font = new Font("Arial", 8, FontStyle.Italic);
+            hardDesc.AutoSize = true;
+            hardDesc.Location = new Point(100, 335);
+
+            this.Controls.Add(modeTitle);
+            this.Controls.Add(easyButton);
+            this.Controls.Add(mediumButton);
+            this.Controls.Add(hardButton);
+            this.Controls.Add(backButton);
+            this.Controls.Add(easyDesc);
+            this.Controls.Add(mediumDesc);
+            this.Controls.Add(hardDesc);
+        }
+
+        Button CreateModeButton(string text, int speedValue, Color color, int yPosition)
+        {
+            Button btn = new Button();
+            btn.Text = text;
+            btn.Size = new Size(200, 50);
+            btn.Location = new Point(90, yPosition);
+            btn.BackColor = color;
+            btn.ForeColor = Color.White;
+            btn.Font = new Font("Arial", 16, FontStyle.Bold);
+            btn.FlatStyle = FlatStyle.Flat;
+            btn.FlatAppearance.BorderSize = 2;
+            btn.FlatAppearance.BorderColor = Color.White;
+            return btn;
+        }
+
+        void StartGameWithMode(string mode, int gameSpeed)
+        {
+            currentMode = mode;
+            baseSpeed = gameSpeed;
+            speed = baseSpeed;
+            this.Controls.Clear();
+            score = 0;
+            collisionCooldown = 0;
+            enemies.Clear();
+            usedLanes.Clear();
+            lastEnemySpawnY = -300;
             SetupGame();
         }
 
         void SetupGame()
         {
-            player.BackColor = Color.Blue;
-            player.Size = new Size(50, 100);
-            player.Location = new Point(170, 450);
+            this.BackColor = Color.DarkGray;
+            this.Paint += DrawRoad;
+
+            Label modeLabel = new Label();
+            modeLabel.Text = $"Mode: {currentMode}  |  Speed: {speed}";
+            modeLabel.ForeColor = Color.Yellow;
+            modeLabel.BackColor = Color.Black;
+            modeLabel.Font = new Font("Arial", 10, FontStyle.Bold);
+            modeLabel.Location = new Point(10, 40);
+            modeLabel.AutoSize = true;
+            this.Controls.Add(modeLabel);
+
+            // PLAYER - Red Sports Car
+            player.Image = DrawPlayerCar();
+            player.Size = new Size(60, 110);
+            player.SizeMode = PictureBoxSizeMode.StretchImage;
+            player.Location = new Point(170, 420);
+            player.BackColor = Color.Transparent;
             this.Controls.Add(player);
 
-            enemy1.BackColor = Color.Red;
-            enemy1.Size = new Size(50, 100);
-            enemy1.Location = new Point(50, -150);
-            this.Controls.Add(enemy1);
+            // Create initial enemies with proper spacing
+            CreateInitialEnemies();
 
-            enemy2.BackColor = Color.Yellow;
-            enemy2.Size = new Size(50, 100);
-            enemy2.Location = new Point(250, -300);
-            this.Controls.Add(enemy2);
-
-            road1.BackColor = Color.White;
-            road1.Size = new Size(10, 100);
-            road1.Location = new Point(190, 0);
-            this.Controls.Add(road1);
-
-            road2.BackColor = Color.White;
-            road2.Size = new Size(10, 100);
-            road2.Location = new Point(190, 300);
-            this.Controls.Add(road2);
-
+            // SCORE
             scoreLabel.Text = "Score: 0";
             scoreLabel.ForeColor = Color.White;
+            scoreLabel.BackColor = Color.Black;
             scoreLabel.Font = new Font("Arial", 14, FontStyle.Bold);
             scoreLabel.Location = new Point(10, 10);
-            scoreLabel.AutoSize = true;
             this.Controls.Add(scoreLabel);
+
+            // Spacing indicator
+            Label spacingLabel = new Label();
+            spacingLabel.Text = "📏 Improved Spacing System ACTIVE";
+            spacingLabel.ForeColor = Color.Lime;
+            spacingLabel.BackColor = Color.Black;
+            spacingLabel.Font = new Font("Arial", 8, FontStyle.Bold);
+            spacingLabel.AutoSize = true;
+            spacingLabel.Location = new Point(10, 65);
+            this.Controls.Add(spacingLabel);
 
             gameTimer.Interval = 20;
             gameTimer.Tick += GameLoop;
             gameTimer.Start();
 
-            this.KeyDown += MovePlayer;
+            this.KeyDown += MovePlayerWithPrediction;
         }
 
-        void GameLoop(object? sender, EventArgs e)
+        void CreateInitialEnemies()
+        {
+            // Create 3 enemies with large spacing between them
+            int[] startPositions = { -150, -350, -550 };
+            int[] lanes = { 120, 170, 220 };
+
+            // Shuffle lanes to randomize initial positions
+            ShuffleArray(lanes);
+
+            for (int i = 0; i < 3; i++)
+            {
+                PictureBox enemy = new PictureBox();
+                enemy.Image = DrawEnemyCar(GetRandomCarColor());
+                enemy.Size = new Size(60, 110);
+                enemy.SizeMode = PictureBoxSizeMode.StretchImage;
+                enemy.Location = new Point(lanes[i], startPositions[i]);
+                enemy.BackColor = Color.Transparent;
+                this.Controls.Add(enemy);
+                enemies.Add(enemy);
+            }
+        }
+
+        void ShuffleArray(int[] array)
+        {
+            for (int i = array.Length - 1; i > 0; i--)
+            {
+                int j = rand.Next(i + 1);
+                int temp = array[i];
+                array[i] = array[j];
+                array[j] = temp;
+            }
+        }
+
+        // Get available lane that's not too close to other enemies
+        int GetAvailableLane(int currentY)
+        {
+            List<int> availableLanes = new List<int> { 120, 170, 220 };
+
+            // Remove lanes that have enemies too close vertically
+            foreach (var enemy in enemies)
+            {
+                if (Math.Abs(enemy.Top - currentY) < minDistanceBetweenEnemies)
+                {
+                    availableLanes.Remove(enemy.Left);
+                }
+            }
+
+            // If no lanes available, return random lane
+            if (availableLanes.Count == 0)
+                return new int[] { 120, 170, 220 }[rand.Next(3)];
+
+            return availableLanes[rand.Next(availableLanes.Count)];
+        }
+
+        // Check if position is safe (not overlapping with other enemies)
+        bool IsPositionSafe(int x, int y, PictureBox excludeEnemy = null)
+        {
+            Rectangle newBounds = new Rectangle(x, y, 60, 110);
+
+            foreach (var enemy in enemies)
+            {
+                if (enemy == excludeEnemy) continue;
+
+                // Check vertical spacing
+                if (Math.Abs(enemy.Top - y) < minDistanceBetweenEnemies)
+                {
+                    return false;
+                }
+
+                // Check horizontal spacing (if too close vertically)
+                if (Math.Abs(enemy.Top - y) < 150 && Math.Abs(enemy.Left - x) < 60)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // 🚗 MOVE PLAYER WITH COLLISION PREDICTION
+        void MovePlayerWithPrediction(object sender, KeyEventArgs e)
+        {
+            if (collisionCooldown > 0) return;
+
+            int newLeft = player.Left;
+
+            if (e.KeyCode == Keys.Left && player.Left > 100)
+                newLeft = player.Left - 20;
+            else if (e.KeyCode == Keys.Right && player.Right < 300)
+                newLeft = player.Left + 20;
+            else
+                return;
+
+            // Check future collisions
+            bool willCollide = false;
+
+            for (int frame = 1; frame <= PREDICTION_FRAMES; frame++)
+            {
+                Rectangle predictedPlayer = new Rectangle(newLeft, player.Top, player.Width, player.Height);
+
+                foreach (var enemy in enemies)
+                {
+                    Rectangle predictedEnemy = new Rectangle(enemy.Left, enemy.Top + (speed * frame), enemy.Width, enemy.Height);
+
+                    if (predictedPlayer.IntersectsWith(predictedEnemy))
+                    {
+                        willCollide = true;
+                        break;
+                    }
+                }
+                if (willCollide) break;
+            }
+
+            if (!willCollide)
+            {
+                player.Left = newLeft;
+                player.Image = DrawPlayerCar();
+                player.BackColor = Color.Transparent;
+            }
+            else
+            {
+                player.BackColor = Color.FromArgb(100, Color.Red);
+                ShowWarning("⚠️ PATH BLOCKED! ⚠️");
+                System.Media.SystemSounds.Beep.Play();
+            }
+        }
+
+        void ShowWarning(string message)
+        {
+            Label warning = new Label();
+            warning.Text = message;
+            warning.ForeColor = Color.Red;
+            warning.BackColor = Color.Black;
+            warning.Font = new Font("Arial", 10, FontStyle.Bold);
+            warning.AutoSize = true;
+            warning.Location = new Point(120, 90);
+            this.Controls.Add(warning);
+
+            Timer warningTimer = new Timer();
+            warningTimer.Interval = 400;
+            warningTimer.Tick += (s, args) => {
+                this.Controls.Remove(warning);
+                warningTimer.Stop();
+            };
+            warningTimer.Start();
+        }
+
+        // 🔁 GAME LOOP
+        void GameLoop(object sender, EventArgs e)
         {
             score++;
             scoreLabel.Text = "Score: " + score;
 
-            road1.Top += speed;
-            road2.Top += speed;
-
-            if (road1.Top > this.Height)
-                road1.Top = -100;
-
-            if (road2.Top > this.Height)
-                road2.Top = -100;
-
-            enemy1.Top += speed;
-            enemy2.Top += speed;
-
-            if (enemy1.Top > this.Height)
+            // Update collision cooldown
+            if (collisionCooldown > 0)
             {
-                enemy1.Top = -150;
-                enemy1.Left = rand.Next(20, 320);
+                collisionCooldown--;
+                if (collisionCooldown % 5 == 0)
+                    player.Visible = !player.Visible;
+                else
+                    player.Visible = true;
+
+                if (collisionCooldown == 0)
+                {
+                    player.BackColor = Color.Transparent;
+                    player.Visible = true;
+                }
             }
 
-            if (enemy2.Top > this.Height)
+            // Speed scaling
+            if (currentMode == "EASY")
+                speed = baseSpeed + (score / 300);
+            else if (currentMode == "MEDIUM")
+                speed = baseSpeed + (score / 200);
+            else if (currentMode == "HARD")
+                speed = baseSpeed + (score / 150);
+
+            if (speed > 18) speed = 18;
+
+            // Move all enemies
+            for (int i = enemies.Count - 1; i >= 0; i--)
             {
-                enemy2.Top = -300;
-                enemy2.Left = rand.Next(20, 320);
+                var enemy = enemies[i];
+                enemy.Top += speed;
+
+                // Respawn enemy at top with proper spacing
+                if (enemy.Top > this.Height)
+                {
+                    int newLane = GetAvailableLane(-100);
+                    int newY = -150;
+
+                    // Ensure spacing from other enemies
+                    while (!IsPositionSafe(newLane, newY, enemy) && newY > -500)
+                    {
+                        newY -= 50;
+                    }
+
+                    enemy.Left = newLane;
+                    enemy.Top = newY;
+                    enemy.Image = DrawEnemyCar(GetRandomCarColor());
+                }
             }
 
-            if (player.Bounds.IntersectsWith(enemy1.Bounds) ||
-                player.Bounds.IntersectsWith(enemy2.Bounds))
+            // COLLISION DETECTION with cooldown
+            if (collisionCooldown == 0)
             {
-                gameTimer.Stop();
-                MessageBox.Show("Game Over!\nYour Score: " + score);
-                Application.Exit();
+                foreach (var enemy in enemies)
+                {
+                    if (player.Bounds.IntersectsWith(enemy.Bounds))
+                    {
+                        GameOver();
+                        return;
+                    }
+                }
+
+                // Near miss detection
+                Rectangle extendedBounds = new Rectangle(player.Left - 15, player.Top - 15,
+                                                          player.Width + 30, player.Height + 30);
+
+                foreach (var enemy in enemies)
+                {
+                    if (extendedBounds.IntersectsWith(enemy.Bounds))
+                    {
+                        int bonus = 20;
+                        score += bonus;
+                        scoreLabel.Text = "Score: " + score;
+                        collisionCooldown = COLLISION_COOLDOWN_MAX / 2;
+                        player.BackColor = Color.FromArgb(100, Color.Gold);
+
+                        ShowBonus($"+{bonus} NEAR MISS!");
+                        System.Media.SystemSounds.Asterisk.Play();
+                        break;
+                    }
+                }
+            }
+
+            this.Refresh();
+        }
+
+        void ShowBonus(string message)
+        {
+            Label bonusLabel = new Label();
+            bonusLabel.Text = message;
+            bonusLabel.ForeColor = Color.Gold;
+            bonusLabel.BackColor = Color.Black;
+            bonusLabel.Font = new Font("Arial", 12, FontStyle.Bold);
+            bonusLabel.AutoSize = true;
+            bonusLabel.Location = new Point(120, 80);
+            this.Controls.Add(bonusLabel);
+
+            Timer bonusTimer = new Timer();
+            bonusTimer.Interval = 600;
+            bonusTimer.Tick += (s, args) => {
+                this.Controls.Remove(bonusLabel);
+                bonusTimer.Stop();
+            };
+            bonusTimer.Start();
+        }
+
+        // 🎨 Draw Player Car
+        Bitmap DrawPlayerCar()
+        {
+            Bitmap bmp = new Bitmap(60, 110);
+            using (Graphics g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+
+                LinearGradientBrush bodyBrush;
+                if (collisionCooldown > 0)
+                {
+                    bodyBrush = new LinearGradientBrush(
+                        new Point(0, 0), new Point(0, 110),
+                        Color.Gold, Color.Orange);
+                }
+                else
+                {
+                    bodyBrush = new LinearGradientBrush(
+                        new Point(0, 0), new Point(0, 110),
+                        Color.DarkRed, Color.Red);
+                }
+                g.FillRectangle(bodyBrush, 10, 20, 40, 70);
+
+                g.FillRectangle(Brushes.DarkBlue, 15, 10, 30, 25);
+                g.FillRectangle(Brushes.LightBlue, 18, 13, 24, 18);
+                g.FillRectangle(Brushes.LightSkyBlue, 15, 30, 12, 15);
+                g.FillRectangle(Brushes.LightSkyBlue, 33, 30, 12, 15);
+
+                g.FillEllipse(Brushes.Yellow, 12, 22, 6, 8);
+                g.FillEllipse(Brushes.Yellow, 42, 22, 6, 8);
+                g.FillEllipse(Brushes.Red, 12, 85, 6, 8);
+                g.FillEllipse(Brushes.Red, 42, 85, 6, 8);
+
+                g.FillEllipse(Brushes.Black, 8, 75, 12, 20);
+                g.FillEllipse(Brushes.Black, 40, 75, 12, 20);
+                g.FillEllipse(Brushes.Black, 8, 25, 12, 20);
+                g.FillEllipse(Brushes.Black, 40, 25, 12, 20);
+
+                if (collisionCooldown > 0)
+                {
+                    g.FillEllipse(Brushes.Gold, 10, 79, 8, 12);
+                    g.FillEllipse(Brushes.Gold, 42, 79, 8, 12);
+                    g.FillEllipse(Brushes.Gold, 10, 29, 8, 12);
+                    g.FillEllipse(Brushes.Gold, 42, 29, 8, 12);
+                }
+                else
+                {
+                    g.FillEllipse(Brushes.Silver, 10, 79, 8, 12);
+                    g.FillEllipse(Brushes.Silver, 42, 79, 8, 12);
+                    g.FillEllipse(Brushes.Silver, 10, 29, 8, 12);
+                    g.FillEllipse(Brushes.Silver, 42, 29, 8, 12);
+                }
+
+                using (Pen stripePen = new Pen(Color.White, 2))
+                {
+                    g.DrawLine(stripePen, 28, 20, 28, 90);
+                }
+
+                g.FillRectangle(Brushes.DarkRed, 20, 95, 20, 5);
+            }
+            return bmp;
+        }
+
+        // 🎨 Draw Enemy Car
+        Bitmap DrawEnemyCar(Color carColor)
+        {
+            Bitmap bmp = new Bitmap(60, 110);
+            using (Graphics g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+
+                LinearGradientBrush bodyBrush = new LinearGradientBrush(
+                    new Point(0, 0), new Point(0, 110),
+                    Color.FromArgb(100, carColor.R / 2, carColor.G / 2, carColor.B / 2),
+                    carColor);
+                g.FillRectangle(bodyBrush, 10, 20, 40, 70);
+
+                g.FillRectangle(Brushes.Black, 15, 10, 30, 25);
+                g.FillRectangle(Brushes.Gray, 18, 13, 24, 18);
+                g.FillRectangle(Brushes.DarkSlateGray, 15, 30, 12, 15);
+                g.FillRectangle(Brushes.DarkSlateGray, 33, 30, 12, 15);
+
+                g.FillEllipse(Brushes.White, 12, 22, 6, 8);
+                g.FillEllipse(Brushes.White, 42, 22, 6, 8);
+                g.FillEllipse(Brushes.Red, 12, 85, 6, 8);
+                g.FillEllipse(Brushes.Red, 42, 85, 6, 8);
+
+                g.FillEllipse(Brushes.Black, 8, 75, 12, 20);
+                g.FillEllipse(Brushes.Black, 40, 75, 12, 20);
+                g.FillEllipse(Brushes.Black, 8, 25, 12, 20);
+                g.FillEllipse(Brushes.Black, 40, 25, 12, 20);
+
+                g.FillEllipse(Brushes.DarkGray, 10, 79, 8, 12);
+                g.FillEllipse(Brushes.DarkGray, 42, 79, 8, 12);
+                g.FillEllipse(Brushes.DarkGray, 10, 29, 8, 12);
+                g.FillEllipse(Brushes.DarkGray, 42, 29, 8, 12);
+
+                using (Pen stripePen = new Pen(Color.White, 2))
+                {
+                    g.DrawLine(stripePen, 12, 50, 48, 50);
+                    g.DrawLine(stripePen, 12, 55, 48, 55);
+                }
+            }
+            return bmp;
+        }
+
+        void DrawRoad(object sender, PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+
+            g.FillRectangle(Brushes.DarkGray, 80, 0, 240, this.Height);
+
+            using (Pen edgePen = new Pen(Color.White, 4))
+            {
+                g.DrawLine(edgePen, 80, 0, 80, this.Height);
+                g.DrawLine(edgePen, 320, 0, 320, this.Height);
+            }
+
+            using (Pen lanePen = new Pen(Color.Yellow, 3))
+            {
+                lanePen.DashStyle = DashStyle.Dash;
+                lanePen.DashPattern = new float[] { 15, 15 };
+                g.DrawLine(lanePen, 200, 0, 200, this.Height);
+            }
+
+            // Road markings
+            for (int i = 0; i < 60; i++)
+            {
+                int x = 85 + (i % 230);
+                int y = (score * 2 + i * 25) % this.Height;
+                g.FillEllipse(Brushes.LightGray, x, y, 2, 2);
             }
         }
 
-        void MovePlayer(object? sender, KeyEventArgs e)
+        Color GetRandomCarColor()
         {
-            if (e.KeyCode == Keys.Left && player.Left > 10)
-                player.Left -= 20;
+            Color[] colors = { Color.Blue, Color.Green, Color.Purple,
+                              Color.Orange, Color.DarkCyan, Color.Magenta };
+            return colors[rand.Next(colors.Length)];
+        }
 
-            if (e.KeyCode == Keys.Right && player.Right < 380)
-                player.Left += 20;
+        void GameOver()
+        {
+            gameTimer.Stop();
+            player.Visible = true;
+
+            string name = Microsoft.VisualBasic.Interaction.InputBox(
+                "Enter Name:", "Game Over - Score: " + score, "Player");
+
+            SaveScore(name, score, currentMode);
+            ShowScores();
+
+            if (MessageBox.Show("Play Again?", "Game Over", MessageBoxButtons.YesNo) == DialogResult.Yes)
+                ShowModeSelection();
+            else
+                Application.Exit();
+        }
+
+        void SaveScore(string name, int score, string mode)
+        {
+            try
+            {
+                using (MySqlConnection conn = new MySqlConnection(connStr))
+                {
+                    conn.Open();
+                    string q = "INSERT INTO scores(player_name, score, game_mode, date_played) VALUES(@n, @s, @m, NOW())";
+                    MySqlCommand cmd = new MySqlCommand(q, conn);
+                    cmd.Parameters.AddWithValue("@n", name);
+                    cmd.Parameters.AddWithValue("@s", score);
+                    cmd.Parameters.AddWithValue("@m", mode);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+            catch { }
+        }
+
+        void ShowScores()
+        {
+            try
+            {
+                using (MySqlConnection conn = new MySqlConnection(connStr))
+                {
+                    conn.Open();
+                    string q = "SELECT player_name, score, game_mode FROM scores ORDER BY score DESC LIMIT 5";
+                    MySqlCommand cmd = new MySqlCommand(q, conn);
+                    var r = cmd.ExecuteReader();
+
+                    string s = "🏆 HIGH SCORES 🏆\n\n";
+                    int rank = 1;
+                    while (r.Read())
+                    {
+                        s += $"{rank}. {r[0]} - {r[1]} pts ({r[2]})\n";
+                        rank++;
+                    }
+
+                    MessageBox.Show(s, "Leaderboard", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+            catch { }
         }
     }
 }
